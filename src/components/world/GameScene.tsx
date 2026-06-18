@@ -31,13 +31,46 @@ function DayNightLight() {
   );
 }
 
+const BUILDING_PALETTES = [
+  { wall: "#5b6168", roof: "#3c4148", trim: "#d9c98c" },
+  { wall: "#7a6552", roof: "#4a3c30", trim: "#e8e4d0" },
+  { wall: "#54625f", roof: "#33403c", trim: "#bcd6cf" },
+  { wall: "#6b5a6b", roof: "#3f343f", trim: "#e0c8e0" },
+];
+
 function Building({ x, z }: { x: number; z: number }) {
-  const height = 2 + ((Math.abs(x * 7 + z * 13) % 10) / 10) * 6;
+  const seed = Math.abs(Math.round(x * 7 + z * 13));
+  const height = 2 + (seed % 10 / 10) * 6;
+  const width = 1.8 + (seed % 4) * 0.4;
+  const depth = 1.8 + ((seed >> 2) % 4) * 0.4;
+  const floors = Math.max(1, Math.round(height / 1.4));
+  const palette = BUILDING_PALETTES[seed % BUILDING_PALETTES.length];
+  const hasFlatRoof = seed % 3 === 0;
+
   return (
-    <mesh position={[x, height / 2, z]} castShadow receiveShadow>
-      <boxGeometry args={[2.4, height, 2.4]} />
-      <meshStandardMaterial color="#5b6168" />
-    </mesh>
+    <group position={[x, 0, z]}>
+      <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[width, height, depth]} />
+        <meshStandardMaterial color={palette.wall} />
+      </mesh>
+      {Array.from({ length: floors }).map((_, floor) => (
+        <mesh key={floor} position={[width / 2 + 0.01, 0.7 + floor * 1.4, 0]}>
+          <planeGeometry args={[depth * 0.7, 0.5]} />
+          <meshStandardMaterial color={palette.trim} emissive={palette.trim} emissiveIntensity={0.25} />
+        </mesh>
+      ))}
+      {hasFlatRoof ? (
+        <mesh position={[0, height + 0.15, 0]} castShadow>
+          <boxGeometry args={[width * 1.05, 0.3, depth * 1.05]} />
+          <meshStandardMaterial color={palette.roof} />
+        </mesh>
+      ) : (
+        <mesh position={[0, height + 0.5, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
+          <coneGeometry args={[Math.max(width, depth) * 0.85, 1, 4]} />
+          <meshStandardMaterial color={palette.roof} />
+        </mesh>
+      )}
+    </group>
   );
 }
 
@@ -144,13 +177,36 @@ function Npc({ x, z, playerPosRef }: { x: number; z: number; playerPosRef: React
   );
 }
 
+function Wheel({ x, z }: { x: number; z: number }) {
+  return (
+    <mesh position={[x, 0.32, z]} rotation={[0, 0, Math.PI / 2]} castShadow>
+      <cylinderGeometry args={[0.32, 0.32, 0.24, 16]} />
+      <meshStandardMaterial color="#1c1c1c" />
+    </mesh>
+  );
+}
+
 function VehicleModel({ x, z, occupied }: { x: number; z: number; occupied: boolean }) {
   if (occupied) return null;
   return (
-    <mesh position={[x, 0.5, z]} castShadow>
-      <boxGeometry args={[1.6, 0.9, 3.2]} />
-      <meshStandardMaterial color="#2f6e4f" />
-    </mesh>
+    <group position={[x, 0, z]}>
+      <mesh position={[0, 0.55, 0]} castShadow>
+        <boxGeometry args={[1.7, 0.7, 3.4]} />
+        <meshStandardMaterial color="#2f6e4f" />
+      </mesh>
+      <mesh position={[0, 1.05, -0.2]} castShadow>
+        <boxGeometry args={[1.5, 0.55, 1.8]} />
+        <meshStandardMaterial color="#274d3b" />
+      </mesh>
+      <mesh position={[0, 1.05, -0.2]}>
+        <boxGeometry args={[1.42, 0.4, 1.7]} />
+        <meshStandardMaterial color="#9fd1e8" transparent opacity={0.55} />
+      </mesh>
+      <Wheel x={0.85} z={1.15} />
+      <Wheel x={-0.85} z={1.15} />
+      <Wheel x={0.85} z={-1.15} />
+      <Wheel x={-0.85} z={-1.15} />
+    </group>
   );
 }
 
