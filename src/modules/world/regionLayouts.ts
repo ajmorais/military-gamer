@@ -11,7 +11,8 @@ export interface RegionWorldLayout {
   buildings: WorldPoint[];
   npcs: WorldPoint[];
   vehicleSpawn: WorldPoint;
-  missionSpawn: WorldPoint;
+  missionSpawns: WorldPoint[];
+  quartelSpawn: WorldPoint;
   label: string;
 }
 
@@ -25,7 +26,8 @@ export const REGION_WORLD_LAYOUTS: Record<RegionId, RegionWorldLayout> = {
     ],
     npcs: [{ x: -3, z: 2 }, { x: 4, z: -3 }, { x: 1, z: 6 }],
     vehicleSpawn: { x: 4, z: 4 },
-    missionSpawn: { x: 12, z: 10 },
+    missionSpawns: [{ x: 12, z: 10 }, { x: -16, z: -8 }],
+    quartelSpawn: { x: 0, z: -5 },
     label: "Centro Urbano de Santa Aurora",
   },
   serrana: {
@@ -34,7 +36,8 @@ export const REGION_WORLD_LAYOUTS: Record<RegionId, RegionWorldLayout> = {
     buildings: [{ x: -5, z: -5 }, { x: 5, z: 6 }],
     npcs: [{ x: -2, z: -4 }, { x: 3, z: 5 }],
     vehicleSpawn: { x: -4, z: 2 },
-    missionSpawn: { x: -14, z: -10 },
+    missionSpawns: [{ x: -14, z: -10 }, { x: 18, z: 6 }],
+    quartelSpawn: { x: 0, z: -8 },
     label: "Encostas da Serra do Aratanha",
   },
   costeira: {
@@ -43,7 +46,8 @@ export const REGION_WORLD_LAYOUTS: Record<RegionId, RegionWorldLayout> = {
     buildings: [{ x: -7, z: 3 }, { x: 9, z: -2 }, { x: 3, z: 9 }],
     npcs: [{ x: 0, z: -2 }, { x: 6, z: 4 }],
     vehicleSpawn: { x: 6, z: -6 },
-    missionSpawn: { x: 16, z: 6 },
+    missionSpawns: [{ x: 16, z: 6 }, { x: -12, z: -14 }],
+    quartelSpawn: { x: -2, z: -7 },
     label: "Litoral de Baía Verde",
   },
   rural: {
@@ -52,7 +56,8 @@ export const REGION_WORLD_LAYOUTS: Record<RegionId, RegionWorldLayout> = {
     buildings: [{ x: -6, z: -2 }, { x: 8, z: 5 }],
     npcs: [{ x: 2, z: -5 }],
     vehicleSpawn: { x: -2, z: -3 },
-    missionSpawn: { x: -18, z: 4 },
+    missionSpawns: [{ x: -18, z: 4 }, { x: 14, z: 16 }],
+    quartelSpawn: { x: 5, z: -9 },
     label: "Vale Rural do Sertão",
   },
   industrial: {
@@ -63,7 +68,8 @@ export const REGION_WORLD_LAYOUTS: Record<RegionId, RegionWorldLayout> = {
     ],
     npcs: [{ x: -4, z: 1 }, { x: 4, z: -2 }],
     vehicleSpawn: { x: 0, z: 6 },
-    missionSpawn: { x: 14, z: -12 },
+    missionSpawns: [{ x: 14, z: -12 }, { x: -16, z: 10 }],
+    quartelSpawn: { x: -6, z: -10 },
     label: "Distrito Industrial Norte",
   },
 };

@@ -8,7 +8,7 @@ interface HudProps {
   player: Player;
   playerPos: { x: number; z: number };
   inVehicle: boolean;
-  missionAvailable: boolean;
+  activeMissionIndexes: number[];
 }
 
 function MiniMapDot({ x, z, color, size = 5 }: { x: number; z: number; color: string; size?: number }) {
@@ -36,7 +36,7 @@ function IndicatorBarMini({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function Hud({ player, playerPos, inVehicle, missionAvailable }: HudProps) {
+export function Hud({ player, playerPos, inVehicle, activeMissionIndexes }: HudProps) {
   const { nextRank, remaining } = xpToNextRank(player.xp);
   const layout = REGION_WORLD_LAYOUTS[player.assignedRegionId as RegionId];
   const indicators: GlobalIndicators = player.indicators;
@@ -63,9 +63,12 @@ export function Hud({ player, playerPos, inVehicle, missionAvailable }: HudProps
             {layout.npcs.map((n, i) => (
               <MiniMapDot key={`n${i}`} x={n.x} z={n.z} color="#38bdf8" size={4} />
             ))}
-            {missionAvailable && (
-              <MiniMapDot x={layout.missionSpawn.x} z={layout.missionSpawn.z} color="#facc15" size={7} />
+            {activeMissionIndexes.map((idx) =>
+              layout.missionSpawns[idx] ? (
+                <MiniMapDot key={idx} x={layout.missionSpawns[idx].x} z={layout.missionSpawns[idx].z} color="#facc15" size={7} />
+              ) : null
             )}
+            <MiniMapDot x={layout.quartelSpawn.x} z={layout.quartelSpawn.z} color="#22c55e" size={5} />
             <MiniMapDot x={playerPos.x} z={playerPos.z} color="#34d399" size={7} />
           </div>
         </div>
@@ -81,7 +84,10 @@ export function Hud({ player, playerPos, inVehicle, missionAvailable }: HudProps
       <div className="absolute bottom-4 right-4 rounded-lg bg-black/55 px-3 py-2 text-right text-xs text-zinc-300 backdrop-blur-sm">
         <p>WASD/setas: mover · A/D: girar</p>
         <p>E: entrar/sair da viatura {inVehicle && "(em viatura)"}</p>
-        {missionAvailable && <p className="text-amber-300">Objetivo: siga o marcador amarelo no radar</p>}
+        <p>Ponto verde no radar: Quartel (treinamentos)</p>
+        {activeMissionIndexes.length > 0 && (
+          <p className="text-amber-300">Objetivo: siga os marcadores amarelos no radar</p>
+        )}
       </div>
     </div>
   );

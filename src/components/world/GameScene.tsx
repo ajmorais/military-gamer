@@ -10,6 +10,7 @@ import { CharacterController, type CharacterState } from "./CharacterController"
 
 const VEHICLE_ENTER_RADIUS = 2.2;
 const MISSION_TRIGGER_RADIUS = 2.5;
+const QUARTEL_ENTER_RADIUS = 2.8;
 
 function DayNightLight() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
@@ -36,6 +37,26 @@ function Building({ x, z }: { x: number; z: number }) {
       <boxGeometry args={[2.4, height, 2.4]} />
       <meshStandardMaterial color="#5b6168" />
     </mesh>
+  );
+}
+
+function Quartel({ x, z }: { x: number; z: number }) {
+  return (
+    <group position={[x, 0, z]}>
+      <mesh position={[0, 1.5, 0]} castShadow receiveShadow>
+        <boxGeometry args={[4, 3, 4]} />
+        <meshStandardMaterial color="#4b5d52" />
+      </mesh>
+      <mesh position={[0, 3.3, 0]} castShadow>
+        <coneGeometry args={[3, 1.2, 4]} />
+        <meshStandardMaterial color="#36443c" />
+      </mesh>
+      <Html position={[0, 4.2, 0]} center distanceFactor={14}>
+        <div className="rounded bg-emerald-900/80 px-2 py-0.5 text-[10px] text-emerald-100 whitespace-nowrap">
+          Quartel FSTS
+        </div>
+      </Html>
+    </group>
   );
 }
 
@@ -71,12 +92,11 @@ function VehicleModel({ x, z, occupied }: { x: number; z: number; occupied: bool
   );
 }
 
-function MissionMarker({ x, z, active }: { x: number; z: number; active: boolean }) {
+function MissionMarker({ x, z }: { x: number; z: number }) {
   const ref = useRef<THREE.Mesh>(null);
   useFrame(({ clock }) => {
     if (ref.current) ref.current.position.y = 1 + Math.sin(clock.getElapsedTime() * 3) * 0.15;
   });
-  if (!active) return null;
   return (
     <mesh ref={ref} position={[x, 1, z]}>
       <cylinderGeometry args={[0.3, 0.05, 1.4, 12]} />
@@ -96,8 +116,9 @@ function Ground({ color }: { color: string }) {
 
 interface GameSceneProps {
   regionId: RegionId;
-  missionAvailable: boolean;
-  onMissionTrigger: () => void;
+  activeMissionIndexes: number[];
+  onMissionTrigger: (index: number) => void;
+  onQuartelEnter: () => void;
   onPositionChange?: (x: number, z: number, inVehicle: boolean) => void;
   uniformColor: string;
   skinColor: string;
@@ -105,8 +126,9 @@ interface GameSceneProps {
 
 export function GameScene({
   regionId,
-  missionAvailable,
+  activeMissionIndexes,
   onMissionTrigger,
+  onQuartelEnter,
   onPositionChange,
   uniformColor,
   skinColor,
@@ -117,17 +139,34 @@ export function GameScene({
     yaw: 0,
     inVehicle: false,
   });
-  const triggeredRef = useRef(false);
+  const triggeredMissionRef = useRef<number | null>(null);
+  const quartelTriggeredRef = useRef(false);
 
   function handleUpdate(pos: THREE.Vector3, yaw: number) {
-    const distToMission = Math.hypot(pos.x - layout.missionSpawn.x, pos.z - layout.missionSpawn.z);
-    if (missionAvailable && distToMission < MISSION_TRIGGER_RADIUS && !triggeredRef.current) {
-      triggeredRef.current = true;
-      onMissionTrigger();
+    let nearMission = false;
+    activeMissionIndexes.forEach((idx) => {
+      const spawn = layout.missionSpawns[idx];
+      if (!spawn) return;
+      const dist = Math.hypot(pos.x - spawn.x, pos.z - spawn.z);
+      if (dist < MISSION_TRIGGER_RADIUS) {
+        nearMission = true;
+        if (triggeredMissionRef.current !== idx) {
+          triggeredMissionRef.current = idx;
+          onMissionTrigger(idx);
+        }
+      }
+    });
+    if (!nearMission) triggeredMissionRef.current = null;
+
+    const distToQuartel = Math.hypot(pos.x - layout.quartelSpawn.x, pos.z - layout.quartelSpawn.z);
+    if (distToQuartel < QUARTEL_ENTER_RADIUS && !quartelTriggeredRef.current) {
+      quartelTriggeredRef.current = true;
+      onQuartelEnter();
     }
-    if (distToMission > MISSION_TRIGGER_RADIUS + 1) {
-      triggeredRef.current = false;
+    if (distToQuartel > QUARTEL_ENTER_RADIUS + 1) {
+      quartelTriggeredRef.current = false;
     }
+
     setCharacter((prev) => ({ ...prev, position: pos, yaw }));
     onPositionChange?.(pos.x, pos.z, character.inVehicle);
   }
@@ -161,8 +200,13 @@ export function GameScene({
         {layout.npcs.map((n, i) => (
           <Npc key={i} x={n.x} z={n.z} />
         ))}
+        <Quartel x={layout.quartelSpawn.x} z={layout.quartelSpawn.z} />
         <VehicleModel x={layout.vehicleSpawn.x} z={layout.vehicleSpawn.z} occupied={character.inVehicle} />
-        <MissionMarker x={layout.missionSpawn.x} z={layout.missionSpawn.z} active={missionAvailable} />
+        {activeMissionIndexes.map((idx) =>
+          layout.missionSpawns[idx] ? (
+            <MissionMarker key={idx} x={layout.missionSpawns[idx].x} z={layout.missionSpawns[idx].z} />
+          ) : null
+        )}
         <CharacterController state={character} onUpdate={handleUpdate} uniformColor={uniformColor} skinColor={skinColor} />
       </Canvas>
     </div>
