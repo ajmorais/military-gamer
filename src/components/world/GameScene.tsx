@@ -7,6 +7,7 @@ import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.j
 import * as THREE from "three";
 import type { RegionId } from "@/types";
 import { REGION_WORLD_LAYOUTS } from "@/modules/world/regionLayouts";
+import { NPC_ROSTER, type NpcProfile } from "@/modules/npcs/npcRoster";
 import { CharacterController, type CharacterState, useHumanoidModel } from "./CharacterController";
 
 const VEHICLE_ENTER_RADIUS = 2.2;
@@ -126,13 +127,30 @@ function NpcModel({ tint, moving }: { tint: string; moving: boolean }) {
   return <primitive object={cloned} />;
 }
 
-function Npc({ x, z, playerPosRef }: { x: number; z: number; playerPosRef: React.RefObject<THREE.Vector3> }) {
+function Npc({
+  x,
+  z,
+  playerPosRef,
+  profile,
+}: {
+  x: number;
+  z: number;
+  playerPosRef: React.RefObject<THREE.Vector3>;
+  profile?: NpcProfile;
+}) {
   const ref = useRef<THREE.Group>(null);
   const [mood, setMood] = useState<"calmo" | "nervoso">("calmo");
   const [moving, setMoving] = useState(false);
+  const [showLine, setShowLine] = useState(false);
   const homeRef = useRef(new THREE.Vector3(x, 0, z));
   const fleeingRef = useRef(false);
   const tint = NPC_UNIFORM_COLORS[Math.abs(Math.round(x * 3 + z * 5)) % NPC_UNIFORM_COLORS.length];
+
+  useEffect(() => {
+    if (!profile) return;
+    const interval = setInterval(() => setShowLine((prev) => !prev), 5000);
+    return () => clearInterval(interval);
+  }, [profile]);
 
   useFrame((_, delta) => {
     if (!ref.current) return;
@@ -165,12 +183,18 @@ function Npc({ x, z, playerPosRef }: { x: number; z: number; playerPosRef: React
     if (didMove !== moving) setMoving(didMove);
   });
 
+  const lineIndex = Math.abs(Math.round(x * 3 + z * 5)) % (profile?.lines.length ?? 1);
+
   return (
     <group ref={ref} position={[x, 0, z]}>
       <NpcModel tint={tint} moving={moving} />
       <Html position={[0, 1.9, 0]} center distanceFactor={12}>
         <div className="rounded bg-black/70 px-2 py-0.5 text-[10px] text-zinc-200 whitespace-nowrap">
-          Cidadão · {mood === "nervoso" ? "nervoso" : "calmo"}
+          {profile && showLine
+            ? `"${profile.lines[lineIndex]}"`
+            : profile
+              ? `${profile.name} · ${profile.role}`
+              : `Cidadão · ${mood === "nervoso" ? "nervoso" : "calmo"}`}
         </div>
       </Html>
     </group>
@@ -359,7 +383,7 @@ export function GameScene({
           <Building key={i} x={b.x} z={b.z} />
         ))}
         {layout.npcs.map((n, i) => (
-          <Npc key={i} x={n.x} z={n.z} playerPosRef={playerPosRef} />
+          <Npc key={i} x={n.x} z={n.z} playerPosRef={playerPosRef} profile={NPC_ROSTER[regionId]?.[i]} />
         ))}
         {rainy && <Rain />}
         <Quartel x={layout.quartelSpawn.x} z={layout.quartelSpawn.z} />
