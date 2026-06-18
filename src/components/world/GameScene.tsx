@@ -1,12 +1,13 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Html } from "@react-three/drei";
+import { Html, useAnimations } from "@react-three/drei";
+import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
 import type { RegionId } from "@/types";
 import { REGION_WORLD_LAYOUTS } from "@/modules/world/regionLayouts";
-import { CharacterController, type CharacterState } from "./CharacterController";
+import { CharacterController, type CharacterState, useHumanoidModel } from "./CharacterController";
 
 const VEHICLE_ENTER_RADIUS = 2.2;
 const MISSION_TRIGGER_RADIUS = 2.5;
@@ -61,14 +62,46 @@ function Quartel({ x, z }: { x: number; z: number }) {
 }
 
 const NPC_FLEE_RADIUS = 3.5;
+const NPC_UNIFORM_COLORS = ["#7a6a52", "#5c6b7a", "#6b5c52", "#4f6b5c"];
+
+function NpcModel({ tint, moving }: { tint: string; moving: boolean }) {
+  const gltf = useHumanoidModel();
+  const cloned = useMemo(() => cloneSkeleton(gltf.scene), [gltf.scene]);
+  const { actions } = useAnimations(gltf.animations, cloned);
+
+  useEffect(() => {
+    cloned.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) {
+        obj.castShadow = true;
+        const mat = obj.material as THREE.MeshStandardMaterial;
+        if (mat?.name?.toLowerCase().includes("body")) {
+          mat.color = new THREE.Color(tint);
+        }
+      }
+    });
+  }, [cloned, tint]);
+
+  useEffect(() => {
+    const action = actions[moving ? "Walk" : "Idle"];
+    if (!action) return;
+    action.reset().fadeIn(0.2).play();
+    return () => {
+      action.fadeOut(0.2);
+    };
+  }, [actions, moving]);
+
+  return <primitive object={cloned} />;
+}
 
 function Npc({ x, z, playerPosRef }: { x: number; z: number; playerPosRef: React.RefObject<THREE.Vector3> }) {
   const ref = useRef<THREE.Group>(null);
   const [mood, setMood] = useState<"calmo" | "nervoso">("calmo");
+  const [moving, setMoving] = useState(false);
   const homeRef = useRef(new THREE.Vector3(x, 0, z));
   const fleeingRef = useRef(false);
+  const tint = NPC_UNIFORM_COLORS[Math.abs(Math.round(x * 3 + z * 5)) % NPC_UNIFORM_COLORS.length];
 
-  useFrame(({ clock }, delta) => {
+  useFrame((_, delta) => {
     if (!ref.current) return;
     const player = playerPosRef.current;
     const dist = player ? Math.hypot(ref.current.position.x - player.x, ref.current.position.z - player.z) : Infinity;
@@ -77,25 +110,31 @@ function Npc({ x, z, playerPosRef }: { x: number; z: number; playerPosRef: React
       fleeingRef.current = isNear;
       setMood(isNear ? "nervoso" : "calmo");
     }
+    let didMove = false;
     if (isNear && player) {
       const dx = ref.current.position.x - player.x;
       const dz = ref.current.position.z - player.z;
       const len = Math.hypot(dx, dz) || 1;
       ref.current.position.x += (dx / len) * delta * 2.2;
       ref.current.position.z += (dz / len) * delta * 2.2;
+      ref.current.rotation.y = Math.atan2(dx / len, dz / len);
+      didMove = true;
     } else {
-      ref.current.position.x += (homeRef.current.x - ref.current.position.x) * delta * 0.5;
-      ref.current.position.z += (homeRef.current.z - ref.current.position.z) * delta * 0.5;
+      const dx = homeRef.current.x - ref.current.position.x;
+      const dz = homeRef.current.z - ref.current.position.z;
+      if (Math.hypot(dx, dz) > 0.1) {
+        ref.current.position.x += dx * delta * 0.5;
+        ref.current.position.z += dz * delta * 0.5;
+        ref.current.rotation.y = Math.atan2(dx, dz);
+        didMove = true;
+      }
     }
-    ref.current.position.y = Math.abs(Math.sin(clock.getElapsedTime() * 2 + x)) * 0.05;
+    if (didMove !== moving) setMoving(didMove);
   });
 
   return (
     <group ref={ref} position={[x, 0, z]}>
-      <mesh position={[0, 0.9, 0]} castShadow>
-        <capsuleGeometry args={[0.28, 0.8, 4, 8]} />
-        <meshStandardMaterial color={mood === "nervoso" ? "#c2552f" : "#8a7a5c"} />
-      </mesh>
+      <NpcModel tint={tint} moving={moving} />
       <Html position={[0, 1.9, 0]} center distanceFactor={12}>
         <div className="rounded bg-black/70 px-2 py-0.5 text-[10px] text-zinc-200 whitespace-nowrap">
           Cidadão · {mood === "nervoso" ? "nervoso" : "calmo"}
