@@ -114,6 +114,7 @@ export interface Player {
   indicators: GlobalIndicators;
   assignedRegionId: RegionId;
   createdAt: number;
+  resolvedBossIds: string[];
 }
 
 export interface TrainingCourse {

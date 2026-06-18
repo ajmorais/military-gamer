@@ -17,6 +17,7 @@ export function createNewPlayer(displayName: string): Player {
     indicators: DEFAULT_INDICATORS,
     assignedRegionId: "metropolitana",
     createdAt: Date.now(),
+    resolvedBossIds: [],
   };
 }
 

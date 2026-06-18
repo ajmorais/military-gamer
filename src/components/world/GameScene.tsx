@@ -8,12 +8,14 @@ import * as THREE from "three";
 import type { RegionId } from "@/types";
 import { REGION_WORLD_LAYOUTS } from "@/modules/world/regionLayouts";
 import { NPC_ROSTER, type NpcProfile } from "@/modules/npcs/npcRoster";
+import { BOSS_ENCOUNTERS, type BossEncounter } from "@/modules/narrative/bosses";
 import { CharacterController, type CharacterState, useHumanoidModel } from "./CharacterController";
 
 const VEHICLE_ENTER_RADIUS = 2.2;
 const MISSION_TRIGGER_RADIUS = 2.5;
 const QUARTEL_ENTER_RADIUS = 2.8;
 const NPC_TALK_RADIUS = 2.6;
+const BOSS_ENCOUNTER_RADIUS = 2.5;
 
 function DayNightLight() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
@@ -248,6 +250,26 @@ function MissionMarker({ x, z }: { x: number; z: number }) {
   );
 }
 
+function BossMarker({ x, z }: { x: number; z: number }) {
+  const ref = useRef<THREE.Mesh>(null);
+  useFrame(({ clock }) => {
+    if (ref.current) ref.current.rotation.y = clock.getElapsedTime() * 2;
+  });
+  return (
+    <group position={[x, 0, z]}>
+      <mesh ref={ref} position={[0, 1.3, 0]}>
+        <octahedronGeometry args={[0.4]} />
+        <meshStandardMaterial color="#dc2626" emissive="#dc2626" emissiveIntensity={1.2} />
+      </mesh>
+      <Html position={[0, 2.1, 0]} center distanceFactor={12}>
+        <div className="rounded bg-red-950/85 px-2 py-0.5 text-[10px] text-red-200 whitespace-nowrap">
+          Presença suspeita
+        </div>
+      </Html>
+    </group>
+  );
+}
+
 function Ground({ color }: { color: string }) {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
@@ -305,6 +327,8 @@ interface GameSceneProps {
   onPositionChange?: (x: number, z: number, inVehicle: boolean) => void;
   uniformColor: string;
   skinColor: string;
+  resolvedBossIds: string[];
+  onBossEncounter: (encounter: BossEncounter) => void;
 }
 
 export function GameScene({
@@ -315,6 +339,8 @@ export function GameScene({
   onPositionChange,
   uniformColor,
   skinColor,
+  resolvedBossIds,
+  onBossEncounter,
 }: GameSceneProps) {
   const layout = REGION_WORLD_LAYOUTS[regionId];
   const [character, setCharacter] = useState<CharacterState>({
@@ -324,11 +350,13 @@ export function GameScene({
   });
   const triggeredMissionRef = useRef<number | null>(null);
   const quartelTriggeredRef = useRef(false);
+  const bossTriggeredRef = useRef(false);
   const playerPosRef = useRef(new THREE.Vector3(0, 0, 0));
   const rainy = isRainy(regionId);
   const [nearNpcIndex, setNearNpcIndex] = useState<number | null>(null);
   const [talkingNpcIndex, setTalkingNpcIndex] = useState<number | null>(null);
   const [talkLineIndex, setTalkLineIndex] = useState(0);
+  const activeBoss = BOSS_ENCOUNTERS.find((b) => b.regionId === regionId && !resolvedBossIds.includes(b.id));
 
   function handleUpdate(pos: THREE.Vector3, yaw: number) {
     let nearMission = false;
@@ -353,6 +381,14 @@ export function GameScene({
     }
     if (distToQuartel > QUARTEL_ENTER_RADIUS + 1) {
       quartelTriggeredRef.current = false;
+    }
+
+    if (activeBoss) {
+      const distToBoss = Math.hypot(pos.x - activeBoss.point.x, pos.z - activeBoss.point.z);
+      if (distToBoss < BOSS_ENCOUNTER_RADIUS && !bossTriggeredRef.current) {
+        bossTriggeredRef.current = true;
+        onBossEncounter(activeBoss);
+      }
     }
 
     playerPosRef.current.set(pos.x, pos.y, pos.z);
@@ -412,6 +448,7 @@ export function GameScene({
           <Npc key={i} x={n.x} z={n.z} playerPosRef={playerPosRef} profile={NPC_ROSTER[regionId]?.[i]} />
         ))}
         {rainy && <Rain />}
+        {activeBoss && <BossMarker x={activeBoss.point.x} z={activeBoss.point.z} />}
         <Quartel x={layout.quartelSpawn.x} z={layout.quartelSpawn.z} />
         <VehicleModel x={layout.vehicleSpawn.x} z={layout.vehicleSpawn.z} occupied={character.inVehicle} />
         {activeMissionIndexes.map((idx) =>

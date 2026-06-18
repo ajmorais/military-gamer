@@ -10,6 +10,7 @@ import { HeadquartersOverlay } from "@/components/world/HeadquartersOverlay";
 import { CommandCenterOverlay } from "@/components/world/CommandCenterOverlay";
 import { PromotionCutscene } from "@/components/world/PromotionCutscene";
 import { AcademyIntro } from "@/components/world/AcademyIntro";
+import { BossEncounterOverlay } from "@/components/world/BossEncounterOverlay";
 import { createNewPlayer } from "@/hooks/usePlayer";
 import { RANK_LABELS, rankForXp } from "@/modules/player/rankUtils";
 import { REGIONS } from "@/modules/operations/regions";
@@ -18,6 +19,7 @@ import { applyBudgetDelta } from "@/modules/economy/budget";
 import { generateIncident, randomIncidentType } from "@/modules/incidents/incidentGenerator";
 import { TRAINING_COURSES } from "@/modules/training/courses";
 import { REGION_WORLD_LAYOUTS } from "@/modules/world/regionLayouts";
+import type { BossEncounter } from "@/modules/narrative/bosses";
 import type { Incident, Player, RegionId } from "@/types";
 
 const GameScene = dynamic(() => import("@/components/world/GameScene").then((m) => m.GameScene), {
@@ -63,6 +65,7 @@ export default function Home() {
   const [showHeadquarters, setShowHeadquarters] = useState(false);
   const [showCommandCenter, setShowCommandCenter] = useState(false);
   const [promotionRankLabel, setPromotionRankLabel] = useState<string | null>(null);
+  const [bossEncounter, setBossEncounter] = useState<BossEncounter | null>(null);
 
   useEffect(() => {
     if (stage === "playing" && player && appearance) {
@@ -85,8 +88,32 @@ export default function Home() {
     const save = loadSave();
     if (!save) return;
     setAppearance(save.appearance);
-    setPlayer(save.player);
+    setPlayer({ ...save.player, resolvedBossIds: save.player.resolvedBossIds ?? [] });
     setStage("playing");
+  }
+
+  function handleResolveBoss(choiceId: string) {
+    if (!bossEncounter || !player) return;
+    const choice = bossEncounter.choices.find((c) => c.id === choiceId);
+    if (!choice) return;
+
+    setPlayer((prev) => {
+      if (!prev) return prev;
+      const xp = prev.xp + choice.xpReward;
+      const newRank = rankForXp(xp);
+      if (newRank !== prev.rank) {
+        setPromotionRankLabel(RANK_LABELS[newRank]);
+      }
+      return {
+        ...prev,
+        xp,
+        rank: newRank,
+        budget: applyBudgetDelta(prev.budget, choice.budgetDelta),
+        indicators: applyIndicatorsDelta(prev.indicators, choice.impact),
+        resolvedBossIds: [...prev.resolvedBossIds, bossEncounter.id],
+      };
+    });
+    setBossEncounter(null);
   }
 
   function handleMissionTrigger(index: number) {
@@ -197,6 +224,8 @@ export default function Home() {
         }}
         uniformColor={appearance.uniformColor}
         skinColor={appearance.skinColor}
+        resolvedBossIds={player.resolvedBossIds}
+        onBossEncounter={(encounter) => setBossEncounter(encounter)}
       />
 
       <Hud player={player} playerPos={playerPos} inVehicle={inVehicle} activeMissionIndexes={activeMissionIndexes} />
@@ -222,7 +251,13 @@ export default function Home() {
         </div>
       )}
 
-      {inQuartelInterior && !incident && !showHeadquarters && !showCommandCenter && (
+      {bossEncounter && (
+        <div className="pointer-events-auto absolute inset-0">
+          <BossEncounterOverlay encounter={bossEncounter} onResolve={handleResolveBoss} />
+        </div>
+      )}
+
+      {inQuartelInterior && !incident && !showHeadquarters && !showCommandCenter && !bossEncounter && (
         <div className="pointer-events-auto absolute inset-0">
           <QuartelInterior
             onOpenTraining={() => setShowHeadquarters(true)}
@@ -234,11 +269,11 @@ export default function Home() {
         </div>
       )}
 
-      {showHeadquarters && !incident && (
+      {showHeadquarters && !incident && !bossEncounter && (
         <HeadquartersOverlay player={player} onTrain={handleTrain} onClose={() => setShowHeadquarters(false)} />
       )}
 
-      {showCommandCenter && !incident && (
+      {showCommandCenter && !incident && !bossEncounter && (
         <CommandCenterOverlay player={player} onClose={() => setShowCommandCenter(false)} />
       )}
 
