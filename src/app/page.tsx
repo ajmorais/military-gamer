@@ -7,6 +7,7 @@ import { CharacterCreation, type CharacterAppearance } from "@/components/world/
 import { Hud } from "@/components/world/Hud";
 import { IncidentOverlay } from "@/components/world/IncidentOverlay";
 import { HeadquartersOverlay } from "@/components/world/HeadquartersOverlay";
+import { CommandCenterOverlay } from "@/components/world/CommandCenterOverlay";
 import { PromotionCutscene } from "@/components/world/PromotionCutscene";
 import { AcademyIntro } from "@/components/world/AcademyIntro";
 import { createNewPlayer } from "@/hooks/usePlayer";
@@ -23,6 +24,9 @@ const GameScene = dynamic(() => import("@/components/world/GameScene").then((m) 
   ssr: false,
 });
 const AcademyScene = dynamic(() => import("@/components/world/AcademyScene").then((m) => m.AcademyScene), {
+  ssr: false,
+});
+const QuartelInterior = dynamic(() => import("@/components/world/QuartelInterior").then((m) => m.QuartelInterior), {
   ssr: false,
 });
 
@@ -55,7 +59,9 @@ export default function Home() {
   const [activeMissionIndexes, setActiveMissionIndexes] = useState<number[]>([0, 1]);
   const [playerPos, setPlayerPos] = useState({ x: 0, z: 0 });
   const [inVehicle, setInVehicle] = useState(false);
+  const [inQuartelInterior, setInQuartelInterior] = useState(false);
   const [showHeadquarters, setShowHeadquarters] = useState(false);
+  const [showCommandCenter, setShowCommandCenter] = useState(false);
   const [promotionRankLabel, setPromotionRankLabel] = useState<string | null>(null);
 
   useEffect(() => {
@@ -126,6 +132,7 @@ export default function Home() {
     setActiveMissionIndexes([0, 1]);
     setIncident(null);
     setShowHeadquarters(false);
+    setInQuartelInterior(false);
   }
 
   function handleTrain(courseId: string) {
@@ -183,7 +190,7 @@ export default function Home() {
         regionId={player.assignedRegionId}
         activeMissionIndexes={incident ? [] : activeMissionIndexes}
         onMissionTrigger={handleMissionTrigger}
-        onQuartelEnter={() => setShowHeadquarters(true)}
+        onQuartelEnter={() => setInQuartelInterior(true)}
         onPositionChange={(x, z, vehicle) => {
           setPlayerPos({ x, z });
           setInVehicle(vehicle);
@@ -215,8 +222,24 @@ export default function Home() {
         </div>
       )}
 
+      {inQuartelInterior && !incident && !showHeadquarters && !showCommandCenter && (
+        <div className="pointer-events-auto absolute inset-0">
+          <QuartelInterior
+            onOpenTraining={() => setShowHeadquarters(true)}
+            onOpenCommand={() => setShowCommandCenter(true)}
+            onExit={() => setInQuartelInterior(false)}
+            uniformColor={appearance.uniformColor}
+            skinColor={appearance.skinColor}
+          />
+        </div>
+      )}
+
       {showHeadquarters && !incident && (
         <HeadquartersOverlay player={player} onTrain={handleTrain} onClose={() => setShowHeadquarters(false)} />
+      )}
+
+      {showCommandCenter && !incident && (
+        <CommandCenterOverlay player={player} onClose={() => setShowCommandCenter(false)} />
       )}
 
       {promotionRankLabel && (
