@@ -13,6 +13,7 @@ import { CharacterController, type CharacterState, useHumanoidModel } from "./Ch
 const VEHICLE_ENTER_RADIUS = 2.2;
 const MISSION_TRIGGER_RADIUS = 2.5;
 const QUARTEL_ENTER_RADIUS = 2.8;
+const NPC_TALK_RADIUS = 2.6;
 
 function DayNightLight() {
   const lightRef = useRef<THREE.DirectionalLight>(null);
@@ -325,6 +326,9 @@ export function GameScene({
   const quartelTriggeredRef = useRef(false);
   const playerPosRef = useRef(new THREE.Vector3(0, 0, 0));
   const rainy = isRainy(regionId);
+  const [nearNpcIndex, setNearNpcIndex] = useState<number | null>(null);
+  const [talkingNpcIndex, setTalkingNpcIndex] = useState<number | null>(null);
+  const [talkLineIndex, setTalkLineIndex] = useState(0);
 
   function handleUpdate(pos: THREE.Vector3, yaw: number) {
     let nearMission = false;
@@ -354,10 +358,30 @@ export function GameScene({
     playerPosRef.current.set(pos.x, pos.y, pos.z);
     setCharacter((prev) => ({ ...prev, position: pos, yaw }));
     onPositionChange?.(pos.x, pos.z, character.inVehicle);
+
+    let near: number | null = null;
+    layout.npcs.forEach((n, i) => {
+      if (Math.hypot(pos.x - n.x, pos.z - n.z) < NPC_TALK_RADIUS) near = i;
+    });
+    setNearNpcIndex(near);
   }
 
   function handleKeyPress(e: React.KeyboardEvent) {
+    if (e.code === "Escape" && talkingNpcIndex !== null) {
+      setTalkingNpcIndex(null);
+      return;
+    }
     if (e.code !== "KeyE") return;
+    if (talkingNpcIndex !== null) {
+      const profile = NPC_ROSTER[regionId]?.[talkingNpcIndex];
+      if (profile) setTalkLineIndex((prev) => (prev + 1) % profile.lines.length);
+      return;
+    }
+    if (nearNpcIndex !== null && NPC_ROSTER[regionId]?.[nearNpcIndex]) {
+      setTalkingNpcIndex(nearNpcIndex);
+      setTalkLineIndex(0);
+      return;
+    }
     const distToVehicle = Math.hypot(
       character.position.x - layout.vehicleSpawn.x,
       character.position.z - layout.vehicleSpawn.z
@@ -366,6 +390,8 @@ export function GameScene({
       setCharacter((prev) => ({ ...prev, inVehicle: !prev.inVehicle }));
     }
   }
+
+  const talkingProfile = talkingNpcIndex !== null ? NPC_ROSTER[regionId]?.[talkingNpcIndex] : undefined;
 
   return (
     <div
@@ -395,6 +421,22 @@ export function GameScene({
         )}
         <CharacterController state={character} onUpdate={handleUpdate} uniformColor={uniformColor} skinColor={skinColor} />
       </Canvas>
+
+      {talkingProfile && (
+        <div className="pointer-events-none absolute bottom-24 left-1/2 w-full max-w-md -translate-x-1/2 rounded-lg border border-zinc-700 bg-black/85 p-3 text-sm text-white">
+          <p className="text-amber-300">
+            {talkingProfile.name} <span className="text-zinc-400">· {talkingProfile.role}</span>
+          </p>
+          <p className="mt-1">&ldquo;{talkingProfile.lines[talkLineIndex]}&rdquo;</p>
+          <p className="mt-2 text-[10px] text-zinc-400">E: continuar · Esc: encerrar</p>
+        </div>
+      )}
+
+      {!talkingProfile && nearNpcIndex !== null && NPC_ROSTER[regionId]?.[nearNpcIndex] && (
+        <div className="pointer-events-none absolute bottom-24 left-1/2 -translate-x-1/2 rounded bg-black/70 px-3 py-1 text-xs text-amber-200">
+          Pressione E para falar com {NPC_ROSTER[regionId][nearNpcIndex].name}
+        </div>
+      )}
     </div>
   );
 }
