@@ -8,6 +8,7 @@ import { Hud } from "@/components/world/Hud";
 import { IncidentOverlay } from "@/components/world/IncidentOverlay";
 import { HeadquartersOverlay } from "@/components/world/HeadquartersOverlay";
 import { PromotionCutscene } from "@/components/world/PromotionCutscene";
+import { AcademyIntro } from "@/components/world/AcademyIntro";
 import { createNewPlayer } from "@/hooks/usePlayer";
 import { RANK_LABELS, rankForXp } from "@/modules/player/rankUtils";
 import { REGIONS } from "@/modules/operations/regions";
@@ -21,10 +22,13 @@ import type { Incident, Player, RegionId } from "@/types";
 const GameScene = dynamic(() => import("@/components/world/GameScene").then((m) => m.GameScene), {
   ssr: false,
 });
+const AcademyScene = dynamic(() => import("@/components/world/AcademyScene").then((m) => m.AcademyScene), {
+  ssr: false,
+});
 
 const SAVE_KEY = "sertao_operacoes_save_v1";
 
-type GameStage = "title" | "creation" | "playing";
+type GameStage = "title" | "creation" | "academy_intro" | "academy_yard" | "playing";
 
 interface SaveData {
   player: Player;
@@ -63,6 +67,11 @@ export default function Home() {
   function handleConfirmCreation(appearanceInput: CharacterAppearance) {
     setAppearance(appearanceInput);
     setPlayer(createNewPlayer(appearanceInput.displayName));
+    setStage("academy_intro");
+  }
+
+  function handleAcademyComplete() {
+    setPlayer((prev) => (prev ? { ...prev, budget: applyBudgetDelta(prev.budget, 500) } : prev));
     setStage("playing");
   }
 
@@ -142,6 +151,30 @@ export default function Home() {
 
   if (stage === "creation" || !player || !appearance) {
     return <CharacterCreation onConfirm={handleConfirmCreation} />;
+  }
+
+  if (stage === "academy_intro") {
+    return (
+      <div className="relative h-screen w-full overflow-hidden bg-zinc-950">
+        <AcademyIntro displayName={appearance.displayName} onDone={() => setStage("academy_yard")} />
+      </div>
+    );
+  }
+
+  if (stage === "academy_yard") {
+    return (
+      <div className="relative h-screen w-full overflow-hidden bg-zinc-950">
+        <AcademyScene
+          onComplete={handleAcademyComplete}
+          uniformColor={appearance.uniformColor}
+          skinColor={appearance.skinColor}
+        />
+        <div className="pointer-events-none absolute bottom-4 left-4 rounded-lg bg-black/55 px-3 py-2 text-xs text-zinc-300 backdrop-blur-sm">
+          <p className="text-amber-300">Curso de Formação · Fase 1: Adaptação Militar</p>
+          <p>WASD/setas: mover · Siga o marcador amarelo até a formatura</p>
+        </div>
+      </div>
+    );
   }
 
   return (
