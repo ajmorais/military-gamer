@@ -60,22 +60,45 @@ function Quartel({ x, z }: { x: number; z: number }) {
   );
 }
 
-function Npc({ x, z }: { x: number; z: number }) {
+const NPC_FLEE_RADIUS = 3.5;
+
+function Npc({ x, z, playerPosRef }: { x: number; z: number; playerPosRef: React.RefObject<THREE.Vector3> }) {
   const ref = useRef<THREE.Group>(null);
-  useFrame(({ clock }) => {
-    if (ref.current) {
-      ref.current.position.y = Math.abs(Math.sin(clock.getElapsedTime() * 2 + x)) * 0.05;
+  const [mood, setMood] = useState<"calmo" | "nervoso">("calmo");
+  const homeRef = useRef(new THREE.Vector3(x, 0, z));
+  const fleeingRef = useRef(false);
+
+  useFrame(({ clock }, delta) => {
+    if (!ref.current) return;
+    const player = playerPosRef.current;
+    const dist = player ? Math.hypot(ref.current.position.x - player.x, ref.current.position.z - player.z) : Infinity;
+    const isNear = dist < NPC_FLEE_RADIUS;
+    if (isNear !== fleeingRef.current) {
+      fleeingRef.current = isNear;
+      setMood(isNear ? "nervoso" : "calmo");
     }
+    if (isNear && player) {
+      const dx = ref.current.position.x - player.x;
+      const dz = ref.current.position.z - player.z;
+      const len = Math.hypot(dx, dz) || 1;
+      ref.current.position.x += (dx / len) * delta * 2.2;
+      ref.current.position.z += (dz / len) * delta * 2.2;
+    } else {
+      ref.current.position.x += (homeRef.current.x - ref.current.position.x) * delta * 0.5;
+      ref.current.position.z += (homeRef.current.z - ref.current.position.z) * delta * 0.5;
+    }
+    ref.current.position.y = Math.abs(Math.sin(clock.getElapsedTime() * 2 + x)) * 0.05;
   });
+
   return (
     <group ref={ref} position={[x, 0, z]}>
       <mesh position={[0, 0.9, 0]} castShadow>
         <capsuleGeometry args={[0.28, 0.8, 4, 8]} />
-        <meshStandardMaterial color="#8a7a5c" />
+        <meshStandardMaterial color={mood === "nervoso" ? "#c2552f" : "#8a7a5c"} />
       </mesh>
       <Html position={[0, 1.9, 0]} center distanceFactor={12}>
         <div className="rounded bg-black/70 px-2 py-0.5 text-[10px] text-zinc-200 whitespace-nowrap">
-          Cidadão
+          Cidadão · {mood === "nervoso" ? "nervoso" : "calmo"}
         </div>
       </Html>
     </group>
@@ -114,6 +137,46 @@ function Ground({ color }: { color: string }) {
   );
 }
 
+const RAIN_DROP_COUNT = 400;
+
+function Rain() {
+  const ref = useRef<THREE.Points>(null);
+  const positions = useState(() => {
+    const arr = new Float32Array(RAIN_DROP_COUNT * 3);
+    for (let i = 0; i < RAIN_DROP_COUNT; i++) {
+      arr[i * 3] = (Math.abs(Math.sin(i * 12.9898)) - 0.5) * 50;
+      arr[i * 3 + 1] = (Math.abs(Math.sin(i * 78.233)) % 1) * 20;
+      arr[i * 3 + 2] = (Math.abs(Math.sin(i * 39.425)) - 0.5) * 50;
+    }
+    return arr;
+  })[0];
+
+  useFrame((_, delta) => {
+    if (!ref.current) return;
+    const attr = ref.current.geometry.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < RAIN_DROP_COUNT; i++) {
+      const y = attr.getY(i) - delta * 14;
+      attr.setY(i, y < 0 ? 20 : y);
+    }
+    attr.needsUpdate = true;
+  });
+
+  return (
+    <points ref={ref}>
+      <bufferGeometry>
+        <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+      </bufferGeometry>
+      <pointsMaterial color="#aac4d9" size={0.12} transparent opacity={0.6} />
+    </points>
+  );
+}
+
+function isRainy(regionId: RegionId) {
+  const t = Math.floor(Date.now() / 60000);
+  const seed = Array.from(regionId).reduce((acc, c) => acc + c.charCodeAt(0), 0);
+  return (t + seed) % 5 === 0;
+}
+
 interface GameSceneProps {
   regionId: RegionId;
   activeMissionIndexes: number[];
@@ -141,6 +204,8 @@ export function GameScene({
   });
   const triggeredMissionRef = useRef<number | null>(null);
   const quartelTriggeredRef = useRef(false);
+  const playerPosRef = useRef(new THREE.Vector3(0, 0, 0));
+  const rainy = isRainy(regionId);
 
   function handleUpdate(pos: THREE.Vector3, yaw: number) {
     let nearMission = false;
@@ -167,6 +232,7 @@ export function GameScene({
       quartelTriggeredRef.current = false;
     }
 
+    playerPosRef.current.set(pos.x, pos.y, pos.z);
     setCharacter((prev) => ({ ...prev, position: pos, yaw }));
     onPositionChange?.(pos.x, pos.z, character.inVehicle);
   }
@@ -198,8 +264,9 @@ export function GameScene({
           <Building key={i} x={b.x} z={b.z} />
         ))}
         {layout.npcs.map((n, i) => (
-          <Npc key={i} x={n.x} z={n.z} />
+          <Npc key={i} x={n.x} z={n.z} playerPosRef={playerPosRef} />
         ))}
+        {rainy && <Rain />}
         <Quartel x={layout.quartelSpawn.x} z={layout.quartelSpawn.z} />
         <VehicleModel x={layout.vehicleSpawn.x} z={layout.vehicleSpawn.z} occupied={character.inVehicle} />
         {activeMissionIndexes.map((idx) =>
