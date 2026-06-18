@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Html, useAnimations } from "@react-three/drei";
+import { Html, Sky, useAnimations } from "@react-three/drei";
+import { Bloom, EffectComposer, ToneMapping, Vignette } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
 import type { RegionId } from "@/types";
@@ -10,6 +12,7 @@ import { REGION_WORLD_LAYOUTS } from "@/modules/world/regionLayouts";
 import { NPC_ROSTER, type NpcProfile } from "@/modules/npcs/npcRoster";
 import { BOSS_ENCOUNTERS, type BossEncounter } from "@/modules/narrative/bosses";
 import { CharacterController, type CharacterState, useHumanoidModel } from "./CharacterController";
+import { useDayNightCycle } from "./useDayNightCycle";
 
 const VEHICLE_ENTER_RADIUS = 2.2;
 const MISSION_TRIGGER_RADIUS = 2.5;
@@ -17,20 +20,62 @@ const QUARTEL_ENTER_RADIUS = 2.8;
 const NPC_TALK_RADIUS = 2.6;
 const BOSS_ENCOUNTER_RADIUS = 2.5;
 
-function DayNightLight() {
-  const lightRef = useRef<THREE.DirectionalLight>(null);
-  useFrame(({ clock }) => {
-    const t = clock.getElapsedTime() * 0.04;
-    const intensity = 0.55 + Math.sin(t) * 0.35;
-    if (lightRef.current) {
-      lightRef.current.intensity = Math.max(0.25, intensity);
-      lightRef.current.position.set(Math.cos(t) * 10, 8 + Math.sin(t) * 4, Math.sin(t) * 10);
-    }
-  });
+function DayNightLight({
+  sunPosition,
+  sunIntensity,
+  ambientIntensity,
+}: {
+  sunPosition: [number, number, number];
+  sunIntensity: number;
+  ambientIntensity: number;
+}) {
   return (
     <>
-      <ambientLight intensity={0.75} />
-      <directionalLight ref={lightRef} castShadow position={[6, 10, 4]} />
+      <ambientLight intensity={ambientIntensity} />
+      <directionalLight
+        castShadow
+        position={sunPosition}
+        intensity={sunIntensity}
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0004}
+      />
+      <hemisphereLight args={["#bcd6ee", "#3a3528", 0.35]} />
+    </>
+  );
+}
+
+function StreetLamp({ x, z, lit }: { x: number; z: number; lit: boolean }) {
+  return (
+    <group position={[x, 0, z]}>
+      <mesh position={[0, 1.6, 0]} castShadow>
+        <cylinderGeometry args={[0.06, 0.08, 3.2, 8]} />
+        <meshStandardMaterial color="#1f1f22" metalness={0.6} roughness={0.4} />
+      </mesh>
+      <mesh position={[0, 3.25, 0]}>
+        <sphereGeometry args={[0.18, 12, 12]} />
+        <meshStandardMaterial
+          color="#ffe9b0"
+          emissive="#ffd27a"
+          emissiveIntensity={lit ? 2.4 : 0.1}
+          toneMapped={false}
+        />
+      </mesh>
+      {lit && <pointLight position={[0, 3.2, 0]} color="#ffd27a" intensity={2.2} distance={9} decay={2} />}
+    </group>
+  );
+}
+
+function SceneAtmosphere({ lampPositions }: { lampPositions: { x: number; z: number }[] }) {
+  const { sunPosition, sunIntensity, ambientIntensity, skyColor, streetlightsOn } = useDayNightCycle();
+  return (
+    <>
+      <color attach="background" args={[skyColor]} />
+      <fog attach="fog" args={[skyColor, 10, 45]} />
+      <Sky sunPosition={sunPosition} turbidity={8} rayleigh={2.2} mieCoefficient={0.01} mieDirectionalG={0.8} />
+      <DayNightLight sunPosition={sunPosition} sunIntensity={sunIntensity} ambientIntensity={ambientIntensity} />
+      {lampPositions.map((p, i) => (
+        <StreetLamp key={i} x={p.x} z={p.z} lit={streetlightsOn} />
+      ))}
     </>
   );
 }
@@ -55,23 +100,28 @@ function Building({ x, z }: { x: number; z: number }) {
     <group position={[x, 0, z]}>
       <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
         <boxGeometry args={[width, height, depth]} />
-        <meshStandardMaterial color={palette.wall} />
+        <meshStandardMaterial color={palette.wall} roughness={0.85} metalness={0.05} />
       </mesh>
       {Array.from({ length: floors }).map((_, floor) => (
         <mesh key={floor} position={[width / 2 + 0.01, 0.7 + floor * 1.4, 0]}>
           <planeGeometry args={[depth * 0.7, 0.5]} />
-          <meshStandardMaterial color={palette.trim} emissive={palette.trim} emissiveIntensity={0.25} />
+          <meshStandardMaterial
+            color={palette.trim}
+            emissive={palette.trim}
+            emissiveIntensity={0.6}
+            toneMapped={false}
+          />
         </mesh>
       ))}
       {hasFlatRoof ? (
         <mesh position={[0, height + 0.15, 0]} castShadow>
           <boxGeometry args={[width * 1.05, 0.3, depth * 1.05]} />
-          <meshStandardMaterial color={palette.roof} />
+          <meshStandardMaterial color={palette.roof} roughness={0.9} />
         </mesh>
       ) : (
         <mesh position={[0, height + 0.5, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
           <coneGeometry args={[Math.max(width, depth) * 0.85, 1, 4]} />
-          <meshStandardMaterial color={palette.roof} />
+          <meshStandardMaterial color={palette.roof} roughness={0.8} />
         </mesh>
       )}
     </group>
@@ -219,16 +269,33 @@ function VehicleModel({ x, z, occupied }: { x: number; z: number; occupied: bool
     <group position={[x, 0, z]}>
       <mesh position={[0, 0.55, 0]} castShadow>
         <boxGeometry args={[1.7, 0.7, 3.4]} />
-        <meshStandardMaterial color="#2f6e4f" />
+        <meshStandardMaterial color="#2f6e4f" roughness={0.35} metalness={0.4} />
       </mesh>
       <mesh position={[0, 1.05, -0.2]} castShadow>
         <boxGeometry args={[1.5, 0.55, 1.8]} />
-        <meshStandardMaterial color="#274d3b" />
+        <meshStandardMaterial color="#274d3b" roughness={0.4} metalness={0.3} />
       </mesh>
       <mesh position={[0, 1.05, -0.2]}>
         <boxGeometry args={[1.42, 0.4, 1.7]} />
-        <meshStandardMaterial color="#9fd1e8" transparent opacity={0.55} />
+        <meshStandardMaterial color="#9fd1e8" transparent opacity={0.55} roughness={0.1} metalness={0.6} />
       </mesh>
+      <mesh position={[0.55, 0.55, 1.72]}>
+        <sphereGeometry args={[0.1, 8, 8]} />
+        <meshStandardMaterial color="#fff7d8" emissive="#fff7d8" emissiveIntensity={2.5} toneMapped={false} />
+      </mesh>
+      <mesh position={[-0.55, 0.55, 1.72]}>
+        <sphereGeometry args={[0.1, 8, 8]} />
+        <meshStandardMaterial color="#fff7d8" emissive="#fff7d8" emissiveIntensity={2.5} toneMapped={false} />
+      </mesh>
+      <mesh position={[0.55, 0.55, -1.72]}>
+        <sphereGeometry args={[0.08, 8, 8]} />
+        <meshStandardMaterial color="#e02424" emissive="#e02424" emissiveIntensity={2} toneMapped={false} />
+      </mesh>
+      <mesh position={[-0.55, 0.55, -1.72]}>
+        <sphereGeometry args={[0.08, 8, 8]} />
+        <meshStandardMaterial color="#e02424" emissive="#e02424" emissiveIntensity={2} toneMapped={false} />
+      </mesh>
+      <pointLight position={[0, 0.6, 2.2]} color="#fff7d8" intensity={1.4} distance={6} decay={2} />
       <Wheel x={0.85} z={1.15} />
       <Wheel x={-0.85} z={1.15} />
       <Wheel x={0.85} z={-1.15} />
@@ -274,7 +341,7 @@ function Ground({ color }: { color: string }) {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
       <planeGeometry args={[60, 60]} />
-      <meshStandardMaterial color={color} />
+      <meshStandardMaterial color={color} roughness={0.95} metalness={0} />
     </mesh>
   );
 }
@@ -436,10 +503,8 @@ export function GameScene({
       ref={(el) => el?.focus()}
       onKeyDown={handleKeyPress}
     >
-      <Canvas shadows camera={{ fov: 60, position: [0, 3, -6] }}>
-        <color attach="background" args={[layout.skyColor]} />
-        <fog attach="fog" args={[layout.skyColor, 10, 40]} />
-        <DayNightLight />
+      <Canvas shadows camera={{ fov: 60, position: [0, 3, -6] }} gl={{ antialias: true }}>
+        <SceneAtmosphere lampPositions={layout.buildings.filter((_, i) => i % 2 === 0)} />
         <Ground color={layout.groundColor} />
         {layout.buildings.map((b, i) => (
           <Building key={i} x={b.x} z={b.z} />
@@ -457,6 +522,11 @@ export function GameScene({
           ) : null
         )}
         <CharacterController state={character} onUpdate={handleUpdate} uniformColor={uniformColor} skinColor={skinColor} />
+        <EffectComposer multisampling={0}>
+          <Bloom luminanceThreshold={0.5} luminanceSmoothing={0.2} intensity={0.6} mipmapBlur />
+          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+          <Vignette eskil={false} offset={0.15} darkness={0.6} />
+        </EffectComposer>
       </Canvas>
 
       {talkingProfile && (
