@@ -12,7 +12,7 @@ export function createNewPlayer(displayName: string): Player {
     displayName,
     rank: "cadete_operacional",
     xp: 0,
-    badgeSeed: displayName + Date.now(),
+    badgeSeed: displayName,
     budget: STARTING_BUDGET,
     indicators: DEFAULT_INDICATORS,
     assignedRegionId: "metropolitana",
