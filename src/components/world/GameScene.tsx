@@ -13,6 +13,7 @@ import { NPC_ROSTER, type NpcProfile } from "@/modules/npcs/npcRoster";
 import { BOSS_ENCOUNTERS, type BossEncounter } from "@/modules/narrative/bosses";
 import { CharacterController, type CharacterState, useHumanoidModel } from "./CharacterController";
 import { useDayNightCycle } from "./useDayNightCycle";
+import { RoadNetwork } from "./RoadNetwork";
 
 const VEHICLE_ENTER_RADIUS = 2.2;
 const MISSION_TRIGGER_RADIUS = 2.5;
@@ -506,6 +507,7 @@ export function GameScene({
       <Canvas shadows camera={{ fov: 60, position: [0, 3, -6] }} gl={{ antialias: true }}>
         <SceneAtmosphere lampPositions={layout.buildings.filter((_, i) => i % 2 === 0)} />
         <Ground color={layout.groundColor} />
+        <RoadNetwork plazaPoint={layout.vehicleSpawn} />
         {layout.buildings.map((b, i) => (
           <Building key={i} x={b.x} z={b.z} />
         ))}
