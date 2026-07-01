@@ -82,7 +82,7 @@ export function Hud({ player, playerPos, inVehicle, activeMissionIndexes }: HudP
       </div>
 
       <div className="absolute bottom-4 right-4 rounded-lg bg-black/55 px-3 py-2 text-right text-xs text-zinc-300 backdrop-blur-sm">
-        <p>WASD/setas: mover · A/D: girar</p>
+        <p>WASD/setas: mover · A/D: girar · Shift: correr</p>
         <p>E: entrar/sair da viatura {inVehicle && "(em viatura)"}</p>
         <p>Ponto verde no radar: Quartel (treinamentos)</p>
         {activeMissionIndexes.length > 0 && (

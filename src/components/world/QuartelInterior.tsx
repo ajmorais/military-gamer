@@ -3,6 +3,8 @@
 import { useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
+import { Bloom, EffectComposer, SMAA, ToneMapping, Vignette } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import { CharacterController, type CharacterState } from "./CharacterController";
 
@@ -52,8 +54,44 @@ function HallFloor() {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
       <planeGeometry args={[24, 24]} />
-      <meshStandardMaterial color="#2c2c30" />
+      <meshStandardMaterial color="#3a3a40" roughness={0.35} metalness={0.1} />
     </mesh>
+  );
+}
+
+function HallShell() {
+  return (
+    <group>
+      {/* paredes do galpão */}
+      {[
+        { pos: [0, 2.5, -12] as const, rot: 0 },
+        { pos: [0, 2.5, 12] as const, rot: Math.PI },
+        { pos: [-12, 2.5, 0] as const, rot: Math.PI / 2 },
+        { pos: [12, 2.5, 0] as const, rot: -Math.PI / 2 },
+      ].map((wall, i) => (
+        <mesh key={i} position={[wall.pos[0], wall.pos[1], wall.pos[2]]} rotation={[0, wall.rot, 0]} receiveShadow>
+          <planeGeometry args={[24, 5]} />
+          <meshStandardMaterial color="#4a4d52" roughness={0.85} side={THREE.DoubleSide} />
+        </mesh>
+      ))}
+      {/* teto */}
+      <mesh position={[0, 5, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[24, 24]} />
+        <meshStandardMaterial color="#2a2c30" roughness={0.9} side={THREE.DoubleSide} />
+      </mesh>
+      {/* luminárias industriais */}
+      {[
+        [-6, -6], [6, -6], [-6, 6], [6, 6], [0, 0],
+      ].map(([lx, lz], i) => (
+        <group key={i} position={[lx, 4.9, lz]}>
+          <mesh>
+            <boxGeometry args={[1.6, 0.08, 0.3]} />
+            <meshStandardMaterial color="#e8f2ff" emissive="#dceaff" emissiveIntensity={2} toneMapped={false} />
+          </mesh>
+          <pointLight color="#dceaff" intensity={14} distance={13} decay={2} />
+        </group>
+      ))}
+    </group>
   );
 }
 
@@ -97,10 +135,16 @@ export function QuartelInterior({ onOpenTraining, onOpenCommand, onExit, uniform
 
   return (
     <div className="h-full w-full outline-none" tabIndex={0} ref={(el) => el?.focus()} onKeyDown={handleKeyPress}>
-      <Canvas shadows camera={{ fov: 60, position: [0, 3, -6] }}>
+      <Canvas
+        shadows="soft"
+        dpr={[1, 1.75]}
+        camera={{ fov: 55, position: [0, 3, -6] }}
+        gl={{ antialias: false, powerPreference: "high-performance" }}
+      >
         <color attach="background" args={["#15151a"]} />
-        <ambientLight intensity={0.9} />
-        <directionalLight castShadow position={[4, 8, 4]} intensity={0.7} />
+        <ambientLight intensity={0.25} color="#c8d4e8" />
+        <directionalLight castShadow position={[4, 8, 4]} intensity={0.5} color="#dce6f2" />
+        <HallShell />
         <HallFloor />
         {ROOMS.map((room) => (
           <RoomFloor key={room.label} room={room} />
@@ -111,6 +155,12 @@ export function QuartelInterior({ onOpenTraining, onOpenCommand, onExit, uniform
           </div>
         </Html>
         <CharacterController state={character} onUpdate={handleUpdate} uniformColor={uniformColor} skinColor={skinColor} />
+        <EffectComposer multisampling={0}>
+          <SMAA />
+          <Bloom luminanceThreshold={0.9} luminanceSmoothing={0.3} intensity={0.5} mipmapBlur />
+          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+          <Vignette eskil={false} offset={0.2} darkness={0.55} />
+        </EffectComposer>
       </Canvas>
     </div>
   );

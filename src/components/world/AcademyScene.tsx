@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Html, useAnimations } from "@react-three/drei";
+import { Html, Sky, useAnimations } from "@react-three/drei";
+import { Bloom, EffectComposer, SMAA, ToneMapping, Vignette } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
 import { CharacterController, type CharacterState, useHumanoidModel } from "./CharacterController";
+import { getGroundTexture } from "./textures";
 
 const FORMATION_POINT = { x: 0, z: -10 };
 const INSTRUCTOR_POINT = { x: 1.2, z: -10.5 };
@@ -14,8 +17,21 @@ const FORMATION_RADIUS = 2.5;
 function YardLight() {
   return (
     <>
-      <ambientLight intensity={0.8} />
-      <directionalLight castShadow position={[6, 10, 4]} intensity={0.9} />
+      <ambientLight intensity={0.45} color="#cfe0ee" />
+      <directionalLight
+        castShadow
+        position={[14, 18, 8]}
+        intensity={2.2}
+        color="#ffe9c4"
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.02}
+        shadow-camera-left={-24}
+        shadow-camera-right={24}
+        shadow-camera-top={24}
+        shadow-camera-bottom={-24}
+      />
+      <hemisphereLight args={["#bcd6ee", "#5a4f3a", 0.4]} />
     </>
   );
 }
@@ -25,12 +41,19 @@ function Barracks({ x, z }: { x: number; z: number }) {
     <group position={[x, 0, z]}>
       <mesh position={[0, 1.4, 0]} castShadow receiveShadow>
         <boxGeometry args={[6, 2.8, 3.2]} />
-        <meshStandardMaterial color="#5c5a4e" />
+        <meshStandardMaterial color="#7d7a68" roughness={0.9} />
       </mesh>
       <mesh position={[0, 3, 0]} castShadow>
         <boxGeometry args={[6.3, 0.3, 3.5]} />
-        <meshStandardMaterial color="#36342c" />
+        <meshStandardMaterial color="#46443a" roughness={0.85} />
       </mesh>
+      {/* portas e janelas na fachada */}
+      {[-2, 0, 2].map((wx) => (
+        <mesh key={wx} position={[wx, 1.1, 1.61]}>
+          <planeGeometry args={[0.9, 1.6]} />
+          <meshStandardMaterial color="#2e3a42" roughness={0.4} metalness={0.2} />
+        </mesh>
+      ))}
     </group>
   );
 }
@@ -89,10 +112,11 @@ function FormationMarker() {
 }
 
 function Ground() {
+  const texture = getGroundTexture("#7a6f4f");
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-      <planeGeometry args={[40, 40]} />
-      <meshStandardMaterial color="#7a6f4f" />
+      <planeGeometry args={[80, 80]} />
+      <meshStandardMaterial map={texture} color="#cfcfcf" roughness={0.95} />
     </mesh>
   );
 }
@@ -122,9 +146,15 @@ export function AcademyScene({ onComplete, uniformColor, skinColor }: AcademySce
 
   return (
     <div className="h-full w-full outline-none" tabIndex={0} ref={(el) => el?.focus()}>
-      <Canvas shadows camera={{ fov: 60, position: [0, 3, -6] }}>
-        <color attach="background" args={["#1b2530"]} />
-        <fog attach="fog" args={["#1b2530", 10, 40]} />
+      <Canvas
+        shadows="soft"
+        dpr={[1, 1.75]}
+        camera={{ fov: 55, position: [0, 3, -6] }}
+        gl={{ antialias: false, powerPreference: "high-performance" }}
+      >
+        <color attach="background" args={["#9ec3dd"]} />
+        <fog attach="fog" args={["#a8c4d8", 16, 60]} />
+        <Sky sunPosition={[14, 18, 8]} turbidity={7} rayleigh={2} mieCoefficient={0.008} mieDirectionalG={0.85} />
         <YardLight />
         <Ground />
         <Barracks x={-8} z={-2} />
@@ -132,6 +162,12 @@ export function AcademyScene({ onComplete, uniformColor, skinColor }: AcademySce
         <Instructor />
         <FormationMarker />
         <CharacterController state={character} onUpdate={handleUpdate} uniformColor={uniformColor} skinColor={skinColor} />
+        <EffectComposer multisampling={0}>
+          <SMAA />
+          <Bloom luminanceThreshold={0.85} luminanceSmoothing={0.3} intensity={0.6} mipmapBlur />
+          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+          <Vignette eskil={false} offset={0.18} darkness={0.5} />
+        </EffectComposer>
       </Canvas>
     </div>
   );
