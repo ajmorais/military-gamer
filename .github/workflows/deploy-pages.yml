@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - claude/compassionate-babbage-3xr5jt
+      - claude/gta5-realistic-mod-y1ktfx
   workflow_dispatch:
 
 permissions:
