@@ -1,9 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Html, Sky, useAnimations } from "@react-three/drei";
-import { Bloom, EffectComposer, ToneMapping, Vignette } from "@react-three/postprocessing";
+import { Html, Sky, Stars, useAnimations } from "@react-three/drei";
+import {
+  Bloom,
+  BrightnessContrast,
+  EffectComposer,
+  HueSaturation,
+  N8AO,
+  SMAA,
+  ToneMapping,
+  Vignette,
+} from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 import * as THREE from "three";
@@ -12,8 +21,9 @@ import { REGION_WORLD_LAYOUTS } from "@/modules/world/regionLayouts";
 import { NPC_ROSTER, type NpcProfile } from "@/modules/npcs/npcRoster";
 import { BOSS_ENCOUNTERS, type BossEncounter } from "@/modules/narrative/bosses";
 import { CharacterController, type CharacterState, useHumanoidModel } from "./CharacterController";
-import { useDayNightCycle } from "./useDayNightCycle";
+import { useDayNightCycle, type DayNightState } from "./useDayNightCycle";
 import { RoadNetwork } from "./RoadNetwork";
+import { getCloudTexture, getFacadeMaps, getGroundTexture } from "./textures";
 
 const VEHICLE_ENTER_RADIUS = 2.2;
 const MISSION_TRIGGER_RADIUS = 2.5;
@@ -21,104 +31,205 @@ const QUARTEL_ENTER_RADIUS = 2.8;
 const NPC_TALK_RADIUS = 2.6;
 const BOSS_ENCOUNTER_RADIUS = 2.5;
 
-function DayNightLight({
-  sunPosition,
-  sunIntensity,
-  ambientIntensity,
-}: {
-  sunPosition: [number, number, number];
-  sunIntensity: number;
-  ambientIntensity: number;
-}) {
+const DayNightContext = createContext<DayNightState | null>(null);
+
+function useDayNight() {
+  const ctx = useContext(DayNightContext);
+  if (!ctx) throw new Error("useDayNight deve ser usado dentro de WorldEnvironment");
+  return ctx;
+}
+
+function SunLight({ cycle }: { cycle: DayNightState }) {
   return (
     <>
-      <ambientLight intensity={ambientIntensity} />
+      <ambientLight intensity={cycle.ambientIntensity} color={cycle.skyColor} />
       <directionalLight
         castShadow
-        position={sunPosition}
-        intensity={sunIntensity}
+        position={cycle.sunPosition}
+        intensity={cycle.sunIntensity}
+        color={cycle.sunColor}
         shadow-mapSize={[2048, 2048]}
         shadow-bias={-0.0004}
+        shadow-normalBias={0.02}
+        shadow-camera-left={-30}
+        shadow-camera-right={30}
+        shadow-camera-top={30}
+        shadow-camera-bottom={-30}
+        shadow-camera-near={1}
+        shadow-camera-far={110}
       />
-      <hemisphereLight args={["#bcd6ee", "#3a3528", 0.35]} />
+      <hemisphereLight args={["#bcd6ee", "#4a4234", 0.2 + (1 - cycle.nightFactor) * 0.45]} />
     </>
+  );
+}
+
+function CloudLayer() {
+  const { nightFactor } = useDayNight();
+  const groupRef = useRef<THREE.Group>(null);
+  const texture = getCloudTexture();
+  const clouds = useMemo(
+    () =>
+      Array.from({ length: 7 }).map((_, i) => {
+        const rand = (n: number) => Math.abs(Math.sin(i * 12.9898 + n * 78.233)) % 1;
+        return {
+          x: (rand(0) - 0.5) * 90,
+          y: 22 + rand(1) * 10,
+          z: (rand(2) - 0.5) * 90,
+          scale: 14 + rand(3) * 16,
+          speed: 0.15 + rand(4) * 0.25,
+        };
+      }),
+    []
+  );
+
+  useFrame((_, delta) => {
+    if (!groupRef.current) return;
+    groupRef.current.children.forEach((cloud, i) => {
+      cloud.position.x += clouds[i].speed * delta;
+      if (cloud.position.x > 55) cloud.position.x = -55;
+    });
+  });
+
+  return (
+    <group ref={groupRef}>
+      {clouds.map((c, i) => (
+        <sprite key={i} position={[c.x, c.y, c.z]} scale={[c.scale, c.scale * 0.45, 1]}>
+          <spriteMaterial
+            map={texture}
+            transparent
+            opacity={0.55 * (1 - nightFactor * 0.75)}
+            depthWrite={false}
+          />
+        </sprite>
+      ))}
+    </group>
   );
 }
 
 function StreetLamp({ x, z, lit }: { x: number; z: number; lit: boolean }) {
   return (
     <group position={[x, 0, z]}>
-      <mesh position={[0, 1.6, 0]} castShadow>
-        <cylinderGeometry args={[0.06, 0.08, 3.2, 8]} />
-        <meshStandardMaterial color="#1f1f22" metalness={0.6} roughness={0.4} />
+      <mesh position={[0, 1.7, 0]} castShadow>
+        <cylinderGeometry args={[0.05, 0.09, 3.4, 10]} />
+        <meshStandardMaterial color="#26262a" metalness={0.7} roughness={0.35} />
       </mesh>
-      <mesh position={[0, 3.25, 0]}>
-        <sphereGeometry args={[0.18, 12, 12]} />
+      {/* braço da luminária */}
+      <mesh position={[0.35, 3.35, 0]} rotation={[0, 0, -0.35]} castShadow>
+        <cylinderGeometry args={[0.035, 0.045, 0.9, 8]} />
+        <meshStandardMaterial color="#26262a" metalness={0.7} roughness={0.35} />
+      </mesh>
+      <mesh position={[0.72, 3.42, 0]}>
+        <boxGeometry args={[0.42, 0.12, 0.2]} />
         <meshStandardMaterial
-          color="#ffe9b0"
+          color="#3a3a3e"
           emissive="#ffd27a"
-          emissiveIntensity={lit ? 2.4 : 0.1}
+          emissiveIntensity={lit ? 3 : 0}
           toneMapped={false}
         />
       </mesh>
-      {lit && <pointLight position={[0, 3.2, 0]} color="#ffd27a" intensity={2.2} distance={9} decay={2} />}
+      {lit && (
+        <pointLight position={[0.72, 3.3, 0]} color="#ffcf87" intensity={12} distance={11} decay={2} castShadow={false} />
+      )}
     </group>
   );
 }
 
-function SceneAtmosphere({ lampPositions }: { lampPositions: { x: number; z: number }[] }) {
-  const { sunPosition, sunIntensity, ambientIntensity, skyColor, streetlightsOn } = useDayNightCycle();
+function WorldEnvironment({
+  lampPositions,
+  rainy,
+  children,
+}: {
+  lampPositions: { x: number; z: number }[];
+  rainy: boolean;
+  children: React.ReactNode;
+}) {
+  const cycle = useDayNightCycle();
   return (
-    <>
-      <color attach="background" args={[skyColor]} />
-      <fog attach="fog" args={[skyColor, 10, 45]} />
-      <Sky sunPosition={sunPosition} turbidity={8} rayleigh={2.2} mieCoefficient={0.01} mieDirectionalG={0.8} />
-      <DayNightLight sunPosition={sunPosition} sunIntensity={sunIntensity} ambientIntensity={ambientIntensity} />
+    <DayNightContext.Provider value={cycle}>
+      <color attach="background" args={[cycle.skyColor]} />
+      <fog
+        attach="fog"
+        args={[cycle.fogColor, rainy ? cycle.fogNear * 0.7 : cycle.fogNear, rainy ? cycle.fogFar * 0.6 : cycle.fogFar]}
+      />
+      <Sky
+        sunPosition={cycle.sunPosition}
+        turbidity={rainy ? 14 : 8}
+        rayleigh={cycle.nightFactor > 0.6 ? 0.4 : 2.2}
+        mieCoefficient={0.008}
+        mieDirectionalG={0.85}
+      />
+      {cycle.nightFactor > 0.35 && (
+        <Stars radius={90} depth={40} count={2400} factor={3.2} saturation={0} fade speed={0.4} />
+      )}
+      {!rainy && <CloudLayer />}
+      <SunLight cycle={cycle} />
       {lampPositions.map((p, i) => (
-        <StreetLamp key={i} x={p.x} z={p.z} lit={streetlightsOn} />
+        <StreetLamp key={i} x={p.x} z={p.z} lit={cycle.streetlightsOn} />
       ))}
-    </>
+      {children}
+    </DayNightContext.Provider>
   );
 }
 
 const BUILDING_PALETTES = [
-  { wall: "#5b6168", roof: "#3c4148", trim: "#d9c98c" },
-  { wall: "#7a6552", roof: "#4a3c30", trim: "#e8e4d0" },
-  { wall: "#54625f", roof: "#33403c", trim: "#bcd6cf" },
-  { wall: "#6b5a6b", roof: "#3f343f", trim: "#e0c8e0" },
+  { wall: "#8a8f96", roof: "#3c4148", trim: "#d9c98c" },
+  { wall: "#a08871", roof: "#4a3c30", trim: "#e8e4d0" },
+  { wall: "#7f948f", roof: "#33403c", trim: "#bcd6cf" },
+  { wall: "#968296", roof: "#3f343f", trim: "#e0c8e0" },
 ];
 
 function Building({ x, z }: { x: number; z: number }) {
+  const { nightFactor } = useDayNight();
   const seed = Math.abs(Math.round(x * 7 + z * 13));
-  const height = 2 + (seed % 10 / 10) * 6;
-  const width = 1.8 + (seed % 4) * 0.4;
-  const depth = 1.8 + ((seed >> 2) % 4) * 0.4;
-  const floors = Math.max(1, Math.round(height / 1.4));
+  const height = 3 + (seed % 10 / 10) * 8;
+  const width = 2.2 + (seed % 4) * 0.5;
+  const depth = 2.2 + ((seed >> 2) % 4) * 0.5;
   const palette = BUILDING_PALETTES[seed % BUILDING_PALETTES.length];
   const hasFlatRoof = seed % 3 === 0;
+  const facade = getFacadeMaps(palette.wall, palette.trim, seed);
+  const windowGlow = Math.min(1, nightFactor * 1.6);
 
   return (
     <group position={[x, 0, z]}>
+      {/* fachadas com janelas nas 4 faces; topo e base lisos */}
       <mesh position={[0, height / 2, 0]} castShadow receiveShadow>
         <boxGeometry args={[width, height, depth]} />
-        <meshStandardMaterial color={palette.wall} roughness={0.85} metalness={0.05} />
-      </mesh>
-      {Array.from({ length: floors }).map((_, floor) => (
-        <mesh key={floor} position={[width / 2 + 0.01, 0.7 + floor * 1.4, 0]}>
-          <planeGeometry args={[depth * 0.7, 0.5]} />
+        {[0, 1, 4, 5].map((face) => (
           <meshStandardMaterial
-            color={palette.trim}
-            emissive={palette.trim}
-            emissiveIntensity={0.6}
-            toneMapped={false}
+            key={face}
+            attach={`material-${face}`}
+            map={facade.map}
+            emissiveMap={facade.emissiveMap}
+            emissive="#ffca7a"
+            emissiveIntensity={windowGlow * 1.6}
+            roughness={0.85}
+            metalness={0.02}
           />
-        </mesh>
-      ))}
+        ))}
+        <meshStandardMaterial attach="material-2" color={palette.roof} roughness={0.92} />
+        <meshStandardMaterial attach="material-3" color={palette.wall} roughness={0.9} />
+      </mesh>
+      {/* base/térreo em concreto */}
+      <mesh position={[0, 0.35, 0]} castShadow receiveShadow>
+        <boxGeometry args={[width * 1.06, 0.7, depth * 1.06]} />
+        <meshStandardMaterial color="#5b5b58" roughness={0.9} />
+      </mesh>
       {hasFlatRoof ? (
-        <mesh position={[0, height + 0.15, 0]} castShadow>
-          <boxGeometry args={[width * 1.05, 0.3, depth * 1.05]} />
-          <meshStandardMaterial color={palette.roof} roughness={0.9} />
-        </mesh>
+        <group>
+          <mesh position={[0, height + 0.15, 0]} castShadow>
+            <boxGeometry args={[width * 1.05, 0.3, depth * 1.05]} />
+            <meshStandardMaterial color={palette.roof} roughness={0.9} />
+          </mesh>
+          {/* casa de máquinas e antena no terraço */}
+          <mesh position={[width * 0.18, height + 0.55, -depth * 0.15]} castShadow>
+            <boxGeometry args={[0.7, 0.5, 0.6]} />
+            <meshStandardMaterial color="#6e6e6a" roughness={0.85} />
+          </mesh>
+          <mesh position={[-width * 0.22, height + 0.85, depth * 0.18]} castShadow>
+            <cylinderGeometry args={[0.02, 0.03, 1.4, 6]} />
+            <meshStandardMaterial color="#8a8a8a" metalness={0.8} roughness={0.3} />
+          </mesh>
+        </group>
       ) : (
         <mesh position={[0, height + 0.5, 0]} rotation={[0, Math.PI / 4, 0]} castShadow>
           <coneGeometry args={[Math.max(width, depth) * 0.85, 1, 4]} />
@@ -134,11 +245,16 @@ function Quartel({ x, z }: { x: number; z: number }) {
     <group position={[x, 0, z]}>
       <mesh position={[0, 1.5, 0]} castShadow receiveShadow>
         <boxGeometry args={[4, 3, 4]} />
-        <meshStandardMaterial color="#4b5d52" />
+        <meshStandardMaterial color="#5d7264" roughness={0.85} />
       </mesh>
       <mesh position={[0, 3.3, 0]} castShadow>
         <coneGeometry args={[3, 1.2, 4]} />
-        <meshStandardMaterial color="#36443c" />
+        <meshStandardMaterial color="#36443c" roughness={0.8} />
+      </mesh>
+      {/* portal de entrada */}
+      <mesh position={[0, 0.9, 2.01]}>
+        <planeGeometry args={[1.2, 1.8]} />
+        <meshStandardMaterial color="#242c26" roughness={0.6} />
       </mesh>
       <Html position={[0, 4.2, 0]} center distanceFactor={14}>
         <div className="rounded bg-emerald-900/80 px-2 py-0.5 text-[10px] text-emerald-100 whitespace-nowrap">
@@ -161,6 +277,7 @@ function NpcModel({ tint, moving }: { tint: string; moving: boolean }) {
     cloned.traverse((obj) => {
       if (obj instanceof THREE.Mesh) {
         obj.castShadow = true;
+        obj.receiveShadow = true;
         const mat = obj.material as THREE.MeshStandardMaterial;
         if (mat?.name?.toLowerCase().includes("body")) {
           mat.color = new THREE.Color(tint);
@@ -257,52 +374,147 @@ function Npc({
 
 function Wheel({ x, z }: { x: number; z: number }) {
   return (
-    <mesh position={[x, 0.32, z]} rotation={[0, 0, Math.PI / 2]} castShadow>
-      <cylinderGeometry args={[0.32, 0.32, 0.24, 16]} />
-      <meshStandardMaterial color="#1c1c1c" />
-    </mesh>
+    <group position={[x, 0.32, z]} rotation={[0, 0, Math.PI / 2]}>
+      <mesh castShadow>
+        <cylinderGeometry args={[0.32, 0.32, 0.24, 20]} />
+        <meshStandardMaterial color="#141414" roughness={0.95} />
+      </mesh>
+      {/* calota */}
+      <mesh position={[0, 0.125, 0]} rotation={[0, 0, 0]}>
+        <cylinderGeometry args={[0.17, 0.17, 0.02, 12]} />
+        <meshStandardMaterial color="#9a9a9e" metalness={0.85} roughness={0.25} />
+      </mesh>
+    </group>
   );
 }
 
-function VehicleModel({ x, z, occupied }: { x: number; z: number; occupied: boolean }) {
-  if (occupied) return null;
+/** Corpo da viatura — usado tanto estacionada quanto dirigida pelo jogador. */
+function PatrolVehicleBody({ headlightsOn }: { headlightsOn: boolean }) {
+  const headlightTarget = useMemo(() => {
+    const target = new THREE.Object3D();
+    target.position.set(0, 0.2, 12);
+    return target;
+  }, []);
+
   return (
-    <group position={[x, 0, z]}>
+    <group>
+      {/* carroceria com pintura clearcoat */}
       <mesh position={[0, 0.55, 0]} castShadow>
-        <boxGeometry args={[1.7, 0.7, 3.4]} />
-        <meshStandardMaterial color="#2f6e4f" roughness={0.35} metalness={0.4} />
+        <boxGeometry args={[1.7, 0.55, 3.4]} />
+        <meshPhysicalMaterial color="#2f6e4f" roughness={0.25} metalness={0.6} clearcoat={1} clearcoatRoughness={0.08} />
       </mesh>
-      <mesh position={[0, 1.05, -0.2]} castShadow>
-        <boxGeometry args={[1.5, 0.55, 1.8]} />
-        <meshStandardMaterial color="#274d3b" roughness={0.4} metalness={0.3} />
+      {/* capô inclinado */}
+      <mesh position={[0, 0.86, 1.15]} castShadow>
+        <boxGeometry args={[1.6, 0.16, 1.0]} />
+        <meshPhysicalMaterial color="#2f6e4f" roughness={0.25} metalness={0.6} clearcoat={1} clearcoatRoughness={0.08} />
       </mesh>
-      <mesh position={[0, 1.05, -0.2]}>
-        <boxGeometry args={[1.42, 0.4, 1.7]} />
-        <meshStandardMaterial color="#9fd1e8" transparent opacity={0.55} roughness={0.1} metalness={0.6} />
+      {/* cabine */}
+      <mesh position={[0, 1.1, -0.35]} castShadow>
+        <boxGeometry args={[1.5, 0.55, 1.7]} />
+        <meshPhysicalMaterial color="#274d3b" roughness={0.3} metalness={0.5} clearcoat={0.8} clearcoatRoughness={0.1} />
       </mesh>
-      <mesh position={[0.55, 0.55, 1.72]}>
-        <sphereGeometry args={[0.1, 8, 8]} />
-        <meshStandardMaterial color="#fff7d8" emissive="#fff7d8" emissiveIntensity={2.5} toneMapped={false} />
+      {/* vidros */}
+      <mesh position={[0, 1.1, -0.35]}>
+        <boxGeometry args={[1.42, 0.42, 1.62]} />
+        <meshPhysicalMaterial
+          color="#1c2b33"
+          transparent
+          opacity={0.75}
+          roughness={0.05}
+          metalness={0.2}
+          envMapIntensity={1.5}
+        />
       </mesh>
-      <mesh position={[-0.55, 0.55, 1.72]}>
-        <sphereGeometry args={[0.1, 8, 8]} />
-        <meshStandardMaterial color="#fff7d8" emissive="#fff7d8" emissiveIntensity={2.5} toneMapped={false} />
+      {/* giroflex */}
+      <mesh position={[0, 1.44, -0.35]} castShadow>
+        <boxGeometry args={[0.9, 0.1, 0.28]} />
+        <meshStandardMaterial color="#1a1a1a" roughness={0.4} />
       </mesh>
-      <mesh position={[0.55, 0.55, -1.72]}>
-        <sphereGeometry args={[0.08, 8, 8]} />
-        <meshStandardMaterial color="#e02424" emissive="#e02424" emissiveIntensity={2} toneMapped={false} />
+      <mesh position={[-0.24, 1.44, -0.35]}>
+        <boxGeometry args={[0.34, 0.11, 0.24]} />
+        <meshStandardMaterial color="#d23b3b" emissive="#e02424" emissiveIntensity={headlightsOn ? 2.2 : 0.6} toneMapped={false} />
       </mesh>
-      <mesh position={[-0.55, 0.55, -1.72]}>
-        <sphereGeometry args={[0.08, 8, 8]} />
-        <meshStandardMaterial color="#e02424" emissive="#e02424" emissiveIntensity={2} toneMapped={false} />
+      <mesh position={[0.24, 1.44, -0.35]}>
+        <boxGeometry args={[0.34, 0.11, 0.24]} />
+        <meshStandardMaterial color="#3b62d2" emissive="#2445e0" emissiveIntensity={headlightsOn ? 2.2 : 0.6} toneMapped={false} />
       </mesh>
-      <pointLight position={[0, 0.6, 2.2]} color="#fff7d8" intensity={1.4} distance={6} decay={2} />
+      {/* para-choques */}
+      <mesh position={[0, 0.32, 1.74]} castShadow>
+        <boxGeometry args={[1.72, 0.22, 0.12]} />
+        <meshStandardMaterial color="#2a2a2c" metalness={0.4} roughness={0.5} />
+      </mesh>
+      <mesh position={[0, 0.32, -1.74]} castShadow>
+        <boxGeometry args={[1.72, 0.22, 0.12]} />
+        <meshStandardMaterial color="#2a2a2c" metalness={0.4} roughness={0.5} />
+      </mesh>
+      {/* faróis */}
+      {[0.55, -0.55].map((side) => (
+        <mesh key={`h${side}`} position={[side, 0.62, 1.72]}>
+          <sphereGeometry args={[0.1, 10, 10]} />
+          <meshStandardMaterial
+            color="#fff7d8"
+            emissive="#fff7d8"
+            emissiveIntensity={headlightsOn ? 3.5 : 0.8}
+            toneMapped={false}
+          />
+        </mesh>
+      ))}
+      {/* lanternas */}
+      {[0.55, -0.55].map((side) => (
+        <mesh key={`t${side}`} position={[side, 0.62, -1.72]}>
+          <sphereGeometry args={[0.08, 8, 8]} />
+          <meshStandardMaterial color="#e02424" emissive="#e02424" emissiveIntensity={headlightsOn ? 2.4 : 0.8} toneMapped={false} />
+        </mesh>
+      ))}
+      {headlightsOn && (
+        <>
+          <primitive object={headlightTarget} />
+          <spotLight
+            position={[0.55, 0.62, 1.75]}
+            target={headlightTarget}
+            color="#fff3cf"
+            intensity={30}
+            distance={22}
+            angle={0.45}
+            penumbra={0.6}
+            decay={2}
+          />
+          <spotLight
+            position={[-0.55, 0.62, 1.75]}
+            target={headlightTarget}
+            color="#fff3cf"
+            intensity={30}
+            distance={22}
+            angle={0.45}
+            penumbra={0.6}
+            decay={2}
+          />
+        </>
+      )}
       <Wheel x={0.85} z={1.15} />
       <Wheel x={-0.85} z={1.15} />
       <Wheel x={0.85} z={-1.15} />
       <Wheel x={-0.85} z={-1.15} />
     </group>
   );
+}
+
+function ParkedVehicle({ x, z, occupied }: { x: number; z: number; occupied: boolean }) {
+  const { streetlightsOn } = useDayNight();
+  if (occupied) return null;
+  return (
+    <group position={[x, 0, z]}>
+      <PatrolVehicleBody headlightsOn={false} />
+      {streetlightsOn && (
+        <pointLight position={[0, 1.6, 0]} color="#fff3cf" intensity={0.6} distance={4} decay={2} />
+      )}
+    </group>
+  );
+}
+
+function DrivenVehicle() {
+  const { streetlightsOn } = useDayNight();
+  return <PatrolVehicleBody headlightsOn={streetlightsOn} />;
 }
 
 function MissionMarker({ x, z }: { x: number; z: number }) {
@@ -338,16 +550,22 @@ function BossMarker({ x, z }: { x: number; z: number }) {
   );
 }
 
-function Ground({ color }: { color: string }) {
+function Ground({ color, wet }: { color: string; wet: boolean }) {
+  const texture = getGroundTexture(color);
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-      <planeGeometry args={[60, 60]} />
-      <meshStandardMaterial color={color} roughness={0.95} metalness={0} />
+      <planeGeometry args={[120, 120]} />
+      <meshStandardMaterial
+        map={texture}
+        color={wet ? "#8f8f92" : "#cfcfcf"}
+        roughness={wet ? 0.45 : 0.95}
+        metalness={wet ? 0.15 : 0}
+      />
     </mesh>
   );
 }
 
-const RAIN_DROP_COUNT = 400;
+const RAIN_DROP_COUNT = 1200;
 
 function Rain() {
   const ref = useRef<THREE.Points>(null);
@@ -365,7 +583,7 @@ function Rain() {
     if (!ref.current) return;
     const attr = ref.current.geometry.attributes.position as THREE.BufferAttribute;
     for (let i = 0; i < RAIN_DROP_COUNT; i++) {
-      const y = attr.getY(i) - delta * 14;
+      const y = attr.getY(i) - delta * 22;
       attr.setY(i, y < 0 ? 20 : y);
     }
     attr.needsUpdate = true;
@@ -376,7 +594,7 @@ function Rain() {
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
-      <pointsMaterial color="#aac4d9" size={0.12} transparent opacity={0.6} />
+      <pointsMaterial color="#aac4d9" size={0.08} transparent opacity={0.55} />
     </points>
   );
 }
@@ -504,30 +722,46 @@ export function GameScene({
       ref={(el) => el?.focus()}
       onKeyDown={handleKeyPress}
     >
-      <Canvas shadows camera={{ fov: 60, position: [0, 3, -6] }} gl={{ antialias: true }}>
-        <SceneAtmosphere lampPositions={layout.buildings.filter((_, i) => i % 2 === 0)} />
-        <Ground color={layout.groundColor} />
-        <RoadNetwork plazaPoint={layout.vehicleSpawn} />
-        {layout.buildings.map((b, i) => (
-          <Building key={i} x={b.x} z={b.z} />
-        ))}
-        {layout.npcs.map((n, i) => (
-          <Npc key={i} x={n.x} z={n.z} playerPosRef={playerPosRef} profile={NPC_ROSTER[regionId]?.[i]} />
-        ))}
-        {rainy && <Rain />}
-        {activeBoss && <BossMarker x={activeBoss.point.x} z={activeBoss.point.z} />}
-        <Quartel x={layout.quartelSpawn.x} z={layout.quartelSpawn.z} />
-        <VehicleModel x={layout.vehicleSpawn.x} z={layout.vehicleSpawn.z} occupied={character.inVehicle} />
-        {activeMissionIndexes.map((idx) =>
-          layout.missionSpawns[idx] ? (
-            <MissionMarker key={idx} x={layout.missionSpawns[idx].x} z={layout.missionSpawns[idx].z} />
-          ) : null
-        )}
-        <CharacterController state={character} onUpdate={handleUpdate} uniformColor={uniformColor} skinColor={skinColor} />
+      <Canvas
+        shadows="soft"
+        dpr={[1, 1.75]}
+        camera={{ fov: 55, position: [0, 3, -6], far: 220 }}
+        gl={{ antialias: false, powerPreference: "high-performance" }}
+      >
+        <WorldEnvironment lampPositions={layout.buildings.filter((_, i) => i % 2 === 0)} rainy={rainy}>
+          <Ground color={layout.groundColor} wet={rainy} />
+          <RoadNetwork plazaPoint={layout.vehicleSpawn} />
+          {layout.buildings.map((b, i) => (
+            <Building key={i} x={b.x} z={b.z} />
+          ))}
+          {layout.npcs.map((n, i) => (
+            <Npc key={i} x={n.x} z={n.z} playerPosRef={playerPosRef} profile={NPC_ROSTER[regionId]?.[i]} />
+          ))}
+          {rainy && <Rain />}
+          {activeBoss && <BossMarker x={activeBoss.point.x} z={activeBoss.point.z} />}
+          <Quartel x={layout.quartelSpawn.x} z={layout.quartelSpawn.z} />
+          <ParkedVehicle x={layout.vehicleSpawn.x} z={layout.vehicleSpawn.z} occupied={character.inVehicle} />
+          {activeMissionIndexes.map((idx) =>
+            layout.missionSpawns[idx] ? (
+              <MissionMarker key={idx} x={layout.missionSpawns[idx].x} z={layout.missionSpawns[idx].z} />
+            ) : null
+          )}
+          <CharacterController
+            state={character}
+            onUpdate={handleUpdate}
+            uniformColor={uniformColor}
+            skinColor={skinColor}
+            vehicle={<DrivenVehicle />}
+          />
+        </WorldEnvironment>
         <EffectComposer multisampling={0}>
-          <Bloom luminanceThreshold={0.5} luminanceSmoothing={0.2} intensity={0.6} mipmapBlur />
+          <SMAA />
+          <N8AO aoRadius={1.4} intensity={1.6} distanceFalloff={1} quality="performance" halfRes />
+          <Bloom luminanceThreshold={0.9} luminanceSmoothing={0.3} intensity={0.5} mipmapBlur />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-          <Vignette eskil={false} offset={0.15} darkness={0.6} />
+          <BrightnessContrast brightness={0.04} contrast={0.08} />
+          <HueSaturation saturation={0.12} />
+          <Vignette eskil={false} offset={0.18} darkness={0.55} />
         </EffectComposer>
       </Canvas>
 
